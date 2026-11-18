@@ -10,8 +10,23 @@ env:
 jobs:
   maven:
     name: "Maven"
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-amd64
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Segredos do Vault
+        id: vault
+        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3
+        with:
+          url: https://vault.infopriceti.com.br
+          method: jwt
+          path: jwt-github
+          role: gha-reposilite
+          exportEnv: false
+          secrets: |
+            secret/data/ci/repos/reposilite MAVEN_NAME | MAVEN_NAME ;
+            secret/data/ci/repos/reposilite MAVEN_TOKEN | MAVEN_TOKEN ;
       - name: "Checkout repository"
         uses: actions/checkout@v3
 
@@ -32,13 +47,28 @@ jobs:
         with:
           arguments: "shadowJar publish"
         env:
-          MAVEN_NAME: ${{ secrets.MAVEN_NAME }}
-          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+          MAVEN_NAME: ${{ steps.vault.outputs.MAVEN_NAME }}
+          MAVEN_TOKEN: ${{ steps.vault.outputs.MAVEN_TOKEN }}
 
   docker:
     name: "Docker"
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-amd64
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Segredos do Vault
+        id: vault
+        uses: hashicorp/vault-action@4c06c5ccf5c0761b6029f56cfb1dcf5565918a3b # v3
+        with:
+          url: https://vault.infopriceti.com.br
+          method: jwt
+          path: jwt-github
+          role: gha-reposilite
+          exportEnv: false
+          secrets: |
+            secret/data/ci/repos/reposilite DOCKERHUB_TOKEN | DOCKERHUB_TOKEN ;
+            secret/data/ci/repos/reposilite DOCKERHUB_USERNAME | DOCKERHUB_USERNAME ;
       - name: "Checkout repository"
         uses: actions/checkout@v3
 
@@ -54,8 +84,8 @@ jobs:
       - name: "Login to DockerHub"
         uses: docker/login-action@v2
         with:
-          username: "${{ secrets.DOCKERHUB_USERNAME }}"
-          password: "${{ secrets.DOCKERHUB_TOKEN }}"
+          username: "${{ steps.vault.outputs.DOCKERHUB_USERNAME }}"
+          password: "${{ steps.vault.outputs.DOCKERHUB_TOKEN }}"
 
       - name: "Login to GitHub Container Registry"
         uses: docker/login-action@v2
