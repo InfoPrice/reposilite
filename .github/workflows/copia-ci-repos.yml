@@ -1,0 +1,40 @@
+name: Copia segredos do repo para o Vault (IT-5620, temporario)
+
+on:
+  push:
+    branches:
+      - vault-copia-ci-repos
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  copia:
+    runs-on: arc-runner-set-amd64
+    timeout-minutes: 5
+    steps:
+      - name: Copia secrets do repo para secret/ci/repos/<repo>
+        env:
+          VAULT_ADDR: https://vault.infopriceti.com.br
+          ROLE: gha-copia-ci-repos-${{ github.event.repository.name }}
+          DESTINO: ci/repos/${{ github.event.repository.name }}
+          CAMPOS: "DOCKERHUB_TOKEN DOCKERHUB_USERNAME MAVEN_NAME MAVEN_TOKEN"
+          SEGREDOS: ${{ toJSON(secrets) }}
+          VARIAVEIS: ${{ toJSON(vars) }}
+        run: |
+          set -euo pipefail
+          OIDC=$(curl -sf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com/InfoPrice" | jq -r .value)
+          echo "::add-mask::$OIDC"
+          VT=$(jq -n --arg r "$ROLE" --arg j "$OIDC" '{role:$r,jwt:$j}' \
+            | curl -sf -X POST -d @- "$VAULT_ADDR/v1/auth/jwt-github/login" | jq -r .auth.client_token)
+          echo "::add-mask::$VT"
+          PAYLOAD=$(jq -cn --argjson v "$VARIAVEIS" --argjson s "$SEGREDOS" --arg campos "$CAMPOS" \
+            '($campos|split(" ")) as $c | {data: (($v + $s)|with_entries(select(.key as $k | $c|index($k))))}')
+          N=$(printf '%s' "$PAYLOAD" | jq '.data|length')
+          echo "faltando: $(printf '%s' "$PAYLOAD" | jq -r --arg campos "$CAMPOS" '(.data|keys) as $k | ($campos|split(" "))-$k|join(" ")')"
+          [ "$N" -gt 0 ] || { echo "nenhum campo encontrado"; exit 1; }
+          printf '%s' "$PAYLOAD" | curl -sf -X POST -H "X-Vault-Token: $VT" -d @- \
+            "$VAULT_ADDR/v1/secret/data/$DESTINO" -o /dev/null
+          echo "gravados $N campos em secret/$DESTINO"
